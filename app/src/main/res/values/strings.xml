@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">蓝牙按键映射器</string>
+    <string name="accessibility_service_description">允许应用拦截蓝牙遥控器按键并将其映射为媒体控制按键</string>
+</resources>
