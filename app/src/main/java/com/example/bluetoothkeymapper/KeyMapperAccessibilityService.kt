@@ -36,6 +36,11 @@ class KeyMapperAccessibilityService : AccessibilityService() {
     private var dpadDownHandler: android.os.Handler? = null // 下方向键长按处理器
     private var isDpadDownLongPressTriggered = false // 下方向键长按是否已触发
 
+    // 语音键长按检测相关变量
+    private var voicePressTime = 0L
+    private var voiceHandler: android.os.Handler? = null
+    private var isVoiceLongPressTriggered = false
+
     // 模式重置延迟相关（防止旋转屏幕时误重置）
     private var modeResetHandler: android.os.Handler? = null
     private var pendingModeReset: Runnable? = null
@@ -82,6 +87,7 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         dpadLeftHandler = android.os.Handler()
         dpadRightHandler = android.os.Handler()
         dpadDownHandler = android.os.Handler()
+        voiceHandler = android.os.Handler()
         modeResetHandler = android.os.Handler()
         
         // 从SharedPreferences读取初始状态
@@ -557,8 +563,44 @@ class KeyMapperAccessibilityService : AccessibilityService() {
                 return true // 拦截原始事件
             }
 
+            // 处理语音键(135) - 支持长按检测
+            135 -> {
+                Log.e(TAG, "!!! 检测到语音键: ${event.keyCode} !!!")
+
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> {
+                        voicePressTime = System.currentTimeMillis()
+                        isVoiceLongPressTriggered = false
+
+                        voiceHandler?.postDelayed({
+                            if (voicePressTime > 0 && !isVoiceLongPressTriggered) {
+                                isVoiceLongPressTriggered = true
+                                handleVoiceLongPress()
+                            }
+                        }, 1000)
+
+                        Log.e(TAG, "语音键按下，开始计时...")
+                    }
+
+                    KeyEvent.ACTION_UP -> {
+                        val pressDuration = System.currentTimeMillis() - voicePressTime
+                        Log.e(TAG, "语音键松开，按下时长: ${pressDuration}ms")
+
+                        voiceHandler?.removeCallbacksAndMessages(null)
+
+                        if (!isVoiceLongPressTriggered && pressDuration < 1000) {
+                            handleVoiceShortPress()
+                        }
+
+                        voicePressTime = 0L
+                        isVoiceLongPressTriggered = false
+                    }
+                }
+                return true
+            }
+
         }
-        
+
         // 记录所有未处理的按键
         Log.d(TAG, "未处理的按键: ${event.keyCode}")
         return super.onKeyEvent(event)
@@ -828,6 +870,28 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         Log.e(TAG, "右方向键长按 - 下一个播放操作完成")
     }
 
+    // 处理语音键单击
+    private fun handleVoiceShortPress() {
+        if (isYoutubeModeEnabled) {
+            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            if (isLandscape && is16to9Screen()) {
+                Log.e(TAG, "YouTube模式16:9横屏 - 语音键单击(532,87)出现说明面板")
+                performSingleClick(532f, 87f)
+            }
+        }
+    }
+
+    // 处理语音键长按
+    private fun handleVoiceLongPress() {
+        if (isYoutubeModeEnabled) {
+            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            if (isLandscape && is16to9Screen()) {
+                Log.e(TAG, "YouTube模式16:9横屏 - 语音键长按(1881,80)关闭说明面板")
+                performSingleClick(1881f, 80f)
+            }
+        }
+    }
+
     // 执行单击操作
     private fun performSingleClick(x: Float, y: Float) {
         try {
@@ -892,6 +956,8 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         dpadRightHandler = null
         dpadDownHandler?.removeCallbacksAndMessages(null)
         dpadDownHandler = null
+        voiceHandler?.removeCallbacksAndMessages(null)
+        voiceHandler = null
         pendingModeReset?.let { modeResetHandler?.removeCallbacks(it) }
         modeResetHandler = null
         pendingModeReset = null
