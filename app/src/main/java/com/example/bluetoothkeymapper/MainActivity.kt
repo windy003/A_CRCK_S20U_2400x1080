@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
@@ -67,6 +68,14 @@ class MainActivity : AppCompatActivity() {
     ) { result ->
         updateUI()
     }
+
+    private val requestNotificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(this, "未授予通知权限，前台常驻通知将不显示（服务仍会运行）", Toast.LENGTH_LONG).show()
+        }
+    }
     
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -94,7 +103,18 @@ class MainActivity : AppCompatActivity() {
         
         setupUI()
         checkPermissions()
+        checkNotificationPermission()
         checkServiceRunningState()
+    }
+
+    private fun checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
     
     private fun setupUI() {
@@ -112,6 +132,11 @@ class MainActivity : AppCompatActivity() {
         binding.btnAccessibilitySettings.setOnClickListener {
             Log.d(TAG, "点击无障碍设置按钮")
             openAccessibilitySettings()
+        }
+
+        binding.btnBatteryOptimization.setOnClickListener {
+            Log.d(TAG, "点击关闭电池优化按钮")
+            requestIgnoreBatteryOptimization()
         }
         
         binding.btnPermissions.setOnClickListener {
@@ -269,8 +294,16 @@ class MainActivity : AppCompatActivity() {
         try {
             Log.d(TAG, "启动服务")
             val intent = Intent(this, BluetoothKeyService::class.java)
-            startService(intent)
+            // Android 8+ 必须用 startForegroundService，服务会在内部调用 startForeground 进入前台
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
             bluetoothKeyService?.startBluetoothScanning()
+
+            // 启动服务时顺便提醒用户关闭电池优化，避免后台被系统杀掉
+            promptDisableBatteryOptimizationIfNeeded()
 
             isServiceRunning = true
 
@@ -358,6 +391,47 @@ class MainActivity : AppCompatActivity() {
             "${packageName}/${KeyMapperAccessibilityService::class.java.name}"
         ) == true
     }
+
+    // 检查是否已忽略电池优化（即允许后台常驻）
+    private fun isBatteryOptimizationIgnored(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    // 跳转系统对话框请求忽略电池优化
+    private fun requestIgnoreBatteryOptimization() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            Toast.makeText(this, "当前系统无需设置电池优化", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isBatteryOptimizationIgnored()) {
+            Toast.makeText(this, "已关闭电池优化，应用可后台常驻", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            @android.annotation.SuppressLint("BatteryLife")
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "请求忽略电池优化失败，改为打开电池优化设置列表: ${e.message}")
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (e2: Exception) {
+                Toast.makeText(this, "无法打开电池优化设置，请手动在系统设置中允许后台运行", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // 启动服务时若未关闭电池优化则自动弹出系统对话框
+    private fun promptDisableBatteryOptimizationIfNeeded() {
+        if (!isBatteryOptimizationIgnored()) {
+            Toast.makeText(this, "为保持后台常驻，请允许忽略电池优化", Toast.LENGTH_LONG).show()
+            requestIgnoreBatteryOptimization()
+        }
+    }
     
     private fun updateUI() {
         val bluetoothEnabled = isBluetoothEnabled()
@@ -366,9 +440,19 @@ class MainActivity : AppCompatActivity() {
         
         Log.d(TAG, "updateUI - 蓝牙: $bluetoothEnabled, 权限: $permissionsGranted, 无障碍: $accessibilityEnabled")
         
+        val batteryIgnored = isBatteryOptimizationIgnored()
+
         binding.tvBluetoothStatus.text = if (bluetoothEnabled) "蓝牙: 已启用" else "蓝牙: 未启用"
         binding.tvPermissionStatus.text = if (permissionsGranted) "权限: 已授予" else "权限: 未授予"
         binding.tvAccessibilityStatus.text = if (accessibilityEnabled) "无障碍服务: 已启用" else "无障碍服务: 未启用"
+        binding.tvBatteryStatus.text = if (batteryIgnored) "电池优化: 已关闭（可后台常驻）" else "电池优化: 未关闭（可能被系统杀后台）"
+        binding.tvBatteryStatus.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (batteryIgnored) android.R.color.holo_green_dark else android.R.color.holo_red_dark
+            )
+        )
+        binding.btnBatteryOptimization.isEnabled = !batteryIgnored
         
         val canStartService = bluetoothEnabled && permissionsGranted && accessibilityEnabled
         Log.d(TAG, "服务按钮可用状态: $canStartService")

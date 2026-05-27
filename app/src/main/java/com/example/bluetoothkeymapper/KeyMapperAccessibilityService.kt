@@ -53,6 +53,7 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         var instance: KeyMapperAccessibilityService? = null
         private const val PREFS_NAME = "KeyMapperPrefs"
         private const val PREF_TIKTOK_MODE_ENABLED = "tiktok_mode_enabled"
+        private const val PREF_SERVICE_ENABLED = "service_enabled"
 
         // 应用包名映射
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
@@ -109,6 +110,10 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         // 获取屏幕尺寸并自动检测比例
         getScreenDimensions()
 
+        // 自愈：无障碍服务连接后，若用户曾开启过服务，则确保前台服务在运行。
+        // 前台服务与无障碍服务同进程，能把整个进程优先级拉高，降低被系统回收的概率。
+        ensureForegroundServiceRunning()
+
         // 测试日志输出
         android.os.Handler().postDelayed({
             Log.e(TAG, "无障碍服务准备就绪，开始监听所有按键事件")
@@ -122,6 +127,28 @@ class KeyMapperAccessibilityService : AccessibilityService() {
             Log.i(TAG, "请按下蓝牙遥控器按键进行测试")
             android.util.Log.wtf(TAG, "最高级别日志：等待按键事件...")
         }, 1000)
+    }
+
+    // 确保前台服务在运行（仅当用户曾主动开启过服务时），用于无障碍服务重连后的自愈
+    private fun ensureForegroundServiceRunning() {
+        try {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val wasEnabledByUser = prefs.getBoolean(PREF_SERVICE_ENABLED, false)
+            if (!wasEnabledByUser) {
+                Log.d(TAG, "用户未开启过服务，跳过前台服务自愈")
+                return
+            }
+            val intent = android.content.Intent(this, BluetoothKeyService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            Log.d(TAG, "无障碍服务自愈：已尝试拉起前台服务")
+        } catch (e: Exception) {
+            // Android 12+ 后台启动前台服务可能受限，捕获异常避免崩溃
+            Log.e(TAG, "自愈拉起前台服务失败: ${e.message}")
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

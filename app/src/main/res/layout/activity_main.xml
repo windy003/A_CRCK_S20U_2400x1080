@@ -51,6 +51,14 @@
         android:layout_height="wrap_content"
         android:text="无障碍服务: 检查中..."
         android:textSize="16sp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tvBatteryStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="电池优化: 检查中..."
+        android:textSize="16sp"
         android:layout_marginBottom="32dp" />
 
     <TextView
@@ -80,6 +88,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="打开无障碍设置"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnBatteryOptimization"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="关闭电池优化（保持后台常驻）"
         android:layout_marginBottom="16dp" />
 
     <Button
