@@ -41,11 +41,10 @@ class KeyMapperAccessibilityService : AccessibilityService() {
     private var voiceHandler: android.os.Handler? = null
     private var isVoiceLongPressTriggered = false
 
-    // YouTube landscape volume-key long-press detection
-    private var volumeKeyPressTime = 0L
-    private var volumeKeyHandler: android.os.Handler? = null
-    private var volumeKeyLongPressTriggered = false
-    private var volumeKeyDownCode = KeyEvent.KEYCODE_UNKNOWN
+    private var homeLongPressHandler: android.os.Handler? = null
+    private var menuLongPressHandler: android.os.Handler? = null
+    private var isHomeLongPressTriggered = false
+    private var isMenuLongPressTriggered = false
 
     // 模式重置延迟相关（防止旋转屏幕时误重置）
     private var modeResetHandler: android.os.Handler? = null
@@ -95,7 +94,8 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         dpadRightHandler = android.os.Handler()
         dpadDownHandler = android.os.Handler()
         voiceHandler = android.os.Handler()
-        volumeKeyHandler = android.os.Handler()
+        homeLongPressHandler = android.os.Handler()
+        menuLongPressHandler = android.os.Handler()
         modeResetHandler = android.os.Handler()
         
         // 从SharedPreferences读取初始状态
@@ -337,41 +337,6 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         
         // 处理Enter键和其他OK键 - 根据模式进行不同映射
         when (event.keyCode) {
-            KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                if (isYoutubeModeEnabled && isLandscape) {
-                    when (event.action) {
-                        KeyEvent.ACTION_DOWN -> {
-                            if (volumeKeyPressTime == 0L) {
-                                volumeKeyPressTime = System.currentTimeMillis()
-                                volumeKeyDownCode = event.keyCode
-                                volumeKeyLongPressTriggered = false
-                                volumeKeyHandler?.postDelayed({
-                                    if (volumeKeyPressTime > 0L && !volumeKeyLongPressTriggered) {
-                                        volumeKeyLongPressTriggered = true
-                                        if (volumeKeyDownCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                                            Log.e(TAG, "YouTube 16:10界面 - 长按音量上，点击(584,81)")
-                                            performSingleClick(584f, 81f)
-                                        } else {
-                                            Log.e(TAG, "YouTube 16:10界面 - 长按音量下，点击(1884,78)")
-                                            performSingleClick(1884f, 78f)
-                                        }
-                                    }
-                                }, 1000)
-                            }
-                        }
-                        KeyEvent.ACTION_UP -> {
-                            volumeKeyHandler?.removeCallbacksAndMessages(null)
-                            volumeKeyPressTime = 0L
-                            volumeKeyDownCode = KeyEvent.KEYCODE_UNKNOWN
-                            volumeKeyLongPressTriggered = false
-                        }
-                    }
-                    return true
-                }
-                return super.onKeyEvent(event)
-            }
-
             60,                              // 遥控器Enter键
             KeyEvent.KEYCODE_ENTER,          // 66 标准Enter键
             KeyEvent.KEYCODE_DPAD_CENTER,    // 23 方向键中心
@@ -511,82 +476,40 @@ class KeyMapperAccessibilityService : AccessibilityService() {
 
             // 处理home按键
             122 -> {
-                if (event.action == KeyEvent.ACTION_DOWN) {
-                    when {
-                        isTiktokModeEnabled -> {
-                            Log.e(TAG, "TikTok模式 - Home键重置进度条")
-                            performTiktokSeekToStart()
-                        }
-                        isYoutubeModeEnabled -> {
-                            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                            when {
-                                isLandscape && is16to9Screen() -> {
-                                    Log.e(TAG, "YouTube模式16:9横屏 - Home键(1852,799)")
-                                    performSingleClick(1852f, 799f)
-                                }
-                                isLandscape -> {
-                                    Log.e(TAG, "YouTube模式20:9横屏 - Home键(2261,801)")
-                                    performSingleClick(2261f, 801f)
-                                }
-                                is16to9Screen() -> {
-                                    Log.e(TAG, "YouTube模式16:9竖屏 - Home键(1014,613)")
-                                    performSingleClick(1014f, 613f)
-                                }
-                                else -> {
-                                    Log.e(TAG, "YouTube模式20:9竖屏 - Home键(1012,625)")
-                                    performSingleClick(1012f, 625f)
-                                }
-                            }
-                        }
-                        else -> {
-                            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                            if (isLandscape) {
-                                Log.e(TAG, "默认模式横屏 - Home键单击(2261,801)")
-                                performSingleClick(2261f, 801f)
-                            } else {
-                                sendMediaPrevious()
-                            }
-                        }
-                    }
+                val useLongPressMapping = isYoutubeModeEnabled && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                if (useLongPressMapping && event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    isHomeLongPressTriggered = false
+                    homeLongPressHandler?.postDelayed({
+                        isHomeLongPressTriggered = true
+                        Log.e(TAG, "YouTube横屏 - 长按Home键，点击(584,81)")
+                        performSingleClick(584f, 81f)
+                    }, 1000)
+                } else if (useLongPressMapping && event.action == KeyEvent.ACTION_UP) {
+                    homeLongPressHandler?.removeCallbacksAndMessages(null)
+                    if (!isHomeLongPressTriggered) performHomeShortPress()
+                    isHomeLongPressTriggered = false
+                } else if (!useLongPressMapping && event.action == KeyEvent.ACTION_DOWN) {
+                    performHomeShortPress()
                 }
                 return true
             }
 
             // 处理menu按键
             KeyEvent.KEYCODE_MENU -> {
-                if (event.action == KeyEvent.ACTION_DOWN) {
-                    when {
-                        isYoutubeModeEnabled -> {
-                            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                            when {
-                                isLandscape && is16to9Screen() -> {
-                                    Log.e(TAG, "YouTube模式16:9横屏 - Menu键(1760,82)")
-                                    performSingleClick(1760f, 82f)
-                                }
-                                isLandscape -> {
-                                    Log.e(TAG, "YouTube模式20:9横屏 - Menu键(2151,68)")
-                                    performSingleClick(2151f, 68f)
-                                }
-                                is16to9Screen() -> {
-                                    Log.e(TAG, "YouTube模式16:9竖屏 - Menu键(900,144)")
-                                    performSingleClick(900f, 144f)
-                                }
-                                else -> {
-                                    Log.e(TAG, "YouTube模式20:9竖屏 - Menu键(855,182)")
-                                    performSingleClick(855f, 182f)
-                                }
-                            }
-                        }
-                        else -> {
-                            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                            if (isLandscape) {
-                                Log.e(TAG, "默认模式横屏 - Menu键单击(2151,68)")
-                                performSingleClick(2151f, 68f)
-                            } else {
-                                sendMediaNext()
-                            }
-                        }
-                    }
+                val useLongPressMapping = isYoutubeModeEnabled && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                if (useLongPressMapping && event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    isMenuLongPressTriggered = false
+                    menuLongPressHandler?.postDelayed({
+                        isMenuLongPressTriggered = true
+                        Log.e(TAG, "YouTube横屏 - 长按Menu键，点击(1884,78)")
+                        performSingleClick(1884f, 78f)
+                    }, 1000)
+                } else if (useLongPressMapping && event.action == KeyEvent.ACTION_UP) {
+                    menuLongPressHandler?.removeCallbacksAndMessages(null)
+                    if (!isMenuLongPressTriggered) performMenuShortPress()
+                    isMenuLongPressTriggered = false
+                } else if (!useLongPressMapping && event.action == KeyEvent.ACTION_DOWN) {
+                    performMenuShortPress()
                 }
                 return true
             }
@@ -675,6 +598,47 @@ class KeyMapperAccessibilityService : AccessibilityService() {
         return super.onKeyEvent(event)
     }
     
+    private fun performHomeShortPress() {
+        when {
+            isTiktokModeEnabled -> {
+                Log.e(TAG, "TikTok模式 - Home键重置进度条")
+                performTiktokSeekToStart()
+            }
+            isYoutubeModeEnabled -> {
+                val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                when {
+                    isLandscape && is16to9Screen() -> performSingleClick(1852f, 799f)
+                    isLandscape -> performSingleClick(2261f, 801f)
+                    is16to9Screen() -> performSingleClick(1014f, 613f)
+                    else -> performSingleClick(1012f, 625f)
+                }
+            }
+            else -> {
+                if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    performSingleClick(2261f, 801f)
+                } else {
+                    sendMediaPrevious()
+                }
+            }
+        }
+    }
+
+    private fun performMenuShortPress() {
+        if (isYoutubeModeEnabled) {
+            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            when {
+                isLandscape && is16to9Screen() -> performSingleClick(1760f, 82f)
+                isLandscape -> performSingleClick(2151f, 68f)
+                is16to9Screen() -> performSingleClick(900f, 144f)
+                else -> performSingleClick(855f, 182f)
+            }
+        } else if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            performSingleClick(2151f, 68f)
+        } else {
+            sendMediaNext()
+        }
+    }
+
     private fun sendMediaPlayPause() {
         try {
             val currentTime = System.currentTimeMillis()
