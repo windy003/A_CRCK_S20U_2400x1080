@@ -403,20 +403,25 @@ class KeyMapperAccessibilityService : AccessibilityService() {
                 return true // 拦截原始事件
             }
             
-            // 处理dpad down键
+            // YouTube横屏下，短按上方向键执行长按Home的功能
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (isYoutubeModeEnabled && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                    event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    Log.e(TAG, "YouTube横屏 - 短按上方向键，执行长按Home功能")
+                    performSingleClick(584f, 81f)
+                }
+                return true
+            }
+
+            // 处理dpad down键；YouTube横屏短按映射为长按Menu
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (isYoutubeModeEnabled) {
                     if (event.action == KeyEvent.ACTION_DOWN) {
                         val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                        when {
-                            isLandscape && is16to9Screen() -> {
-                                Log.e(TAG, "YouTube模式16:9横屏 - 下方向键单击(1629,315)")
-                                performSingleClick(1629f, 315f)
-                            }
-                            isLandscape -> {
-                                Log.e(TAG, "YouTube模式20:9横屏 - 下方向键单击(1855,434)")
-                                performSingleClick(1855f, 434f)
-                            }
+                        if (isLandscape && event.repeatCount == 0) {
+                            Log.e(TAG, "YouTube横屏 - 短按下方向键，执行长按Menu功能")
+                            performSingleClick(1884f, 78f)
+                        } else if (!isLandscape) when {
                             is16to9Screen() -> {
                                 Log.e(TAG, "YouTube模式16:9竖屏 - 下方向键单击(931,346)")
                                 performSingleClick(931f, 346f)
